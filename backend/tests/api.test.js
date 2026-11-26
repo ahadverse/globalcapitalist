@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { after, before, test } = require('node:test');
-const app = require('../server');
+const app = require('../server').createApp({ connectDatabase: async () => {} });
 const { generateSlug } = require('../utils/generateSlug');
 
 let server;
@@ -19,15 +19,42 @@ after(async () => {
   });
 });
 
-test('root endpoint describes the API', async () => {
+test('root endpoint connects to the database before reporting status', async () => {
   const response = await fetch(`${baseUrl}/`);
   assert.equal(response.status, 200);
   const result = await response.json();
   assert.deepEqual(result, {
     name: 'globalcapitalist API',
     status: 'running',
-    database: 'disconnected',
+    database: 'connected',
   });
+});
+
+test('root endpoint reports database connection failures', async () => {
+  const disconnectedApp = require('../server').createApp({
+    connectDatabase: async () => {
+      throw new Error('Database unavailable');
+    },
+  });
+  const disconnectedServer = await new Promise((resolve) => {
+    const instance = disconnectedApp.listen(0, () => resolve(instance));
+  });
+
+  try {
+    const url = `http://127.0.0.1:${disconnectedServer.address().port}/`;
+    const response = await fetch(url);
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), {
+      name: 'globalcapitalist API',
+      status: 'running',
+      database: 'disconnected',
+      error: 'Database connection is unavailable',
+    });
+  } finally {
+    await new Promise((resolve, reject) => {
+      disconnectedServer.close((error) => error ? reject(error) : resolve());
+    });
+  }
 });
 
 test('health endpoint is not exposed separately', async () => {

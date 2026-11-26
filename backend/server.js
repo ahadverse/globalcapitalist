@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const mongoose = require('mongoose');
 const connectDB = require('./config/database');
 const postRoutes = require('./routes/postRoutes');
 const authRoutes = require('./routes/authRoutes');
@@ -9,37 +8,54 @@ const siteContentRoutes = require('./routes/siteContentRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const errorHandler = require('./middleware/errorHandler');
 
-const app = express();
+const createApp = ({ connectDatabase = connectDB } = {}) => {
+  const app = express();
 
-const allowedOrigins = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+  const allowedOrigins = (process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
-app.use(cors({
-  origin: allowedOrigins.length
-    ? (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin))
-    : true,
-}));
-app.use(express.json({ limit: '1mb' }));
+  app.use(cors({
+    origin: allowedOrigins.length
+      ? (origin, callback) => callback(null, !origin || allowedOrigins.includes(origin))
+      : true,
+  }));
+  app.use(express.json({ limit: '1mb' }));
 
-app.use('/api/posts', postRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/site-content', siteContentRoutes);
-app.use('/api/contact', contactRoutes);
+  app.use('/api/posts', postRoutes);
+  app.use('/api/auth', authRoutes);
+  app.use('/api/site-content', siteContentRoutes);
+  app.use('/api/contact', contactRoutes);
 
-app.get('/', (req, res) => {
-  res.json({
-    name: 'globalcapitalist API',
-    status: 'running',
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+  app.get('/', async (req, res) => {
+    try {
+      await connectDatabase();
+      return res.json({
+        name: 'globalcapitalist API',
+        status: 'running',
+        database: 'connected',
+      });
+    } catch (error) {
+      console.error('Database health check failed:', error);
+      return res.status(503).json({
+        name: 'globalcapitalist API',
+        status: 'running',
+        database: 'disconnected',
+        error: 'Database connection is unavailable',
+      });
+    }
   });
-});
 
-app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
-app.use(errorHandler);
+  app.use((req, res) => {
+    res.status(404).json({ error: 'Route not found' });
+  });
+  app.use(errorHandler);
+
+  return app;
+};
+
+const app = createApp();
 
 const startServer = async () => {
   if (!process.env.JWT_SECRET) {
@@ -61,3 +77,4 @@ if (require.main === module) {
 }
 
 module.exports = app;
+module.exports.createApp = createApp;
